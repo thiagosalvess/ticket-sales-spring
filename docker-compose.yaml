@@ -1,0 +1,65 @@
+services:
+  mysql:
+    image: mysql:8.0.30-debian
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tickets
+
+      TZ: America/Sao_Paulo
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db.sql:/docker-entrypoint-initdb.d/db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -proot | grep 'mysqld is alive' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [ appnet ]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: java-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      API_SECURITY_TOKEN_SECRET: 123456
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/tickets?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+    ports:
+      - "8080:8080"
+    networks: [ appnet ]
+
+  tests:
+    profiles: [ "test" ]
+    image: maven:3.9.8-eclipse-temurin-21
+    user: "${UID}:${GID}"
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - m2:/root/.m2
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      MAVEN_OPTS: -Dmaven.repo.local=/root/.m2/repository
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TZ: America/Sao_Paulo
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: mvn -B -DskipTests=false clean test
+    networks: [ appnet ]
+
+volumes:
+  db_data:
+  m2:
+
+networks:
+  appnet:
